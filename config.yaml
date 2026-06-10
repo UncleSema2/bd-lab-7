@@ -1,0 +1,23 @@
+spark:
+  app_name: OpenFoodFacts-KMeans
+  master: local[32]
+  driver_memory: 32g
+  shuffle_partitions: "8"
+  log_level: WARN
+data:
+  input_path: data/food.parquet
+sqlserver:
+  host: localhost
+  port: 1433
+  database: food
+  user: sa
+  input_table: food_input
+  predictions_table: food_predictions
+  metrics_table: food_metrics
+preprocessing:
+  imputer_strategy: median
+training:
+  k: 2
+  seed: 42
+  metric_name: silhouette
+  distance_measure: squaredEuclidean
