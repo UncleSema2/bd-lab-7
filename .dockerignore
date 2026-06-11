@@ -3,3 +3,5 @@
 data
 **/__pycache__
 *.pyc
+src/datamart/target
+src/datamart/.bsp
