@@ -2,11 +2,10 @@ from pyspark.ml import Pipeline
 from pyspark.ml.clustering import KMeans
 from pyspark.ml.evaluation import ClusteringEvaluator
 from pyspark.ml.feature import Imputer, StandardScaler, VectorAssembler
-from pyspark.sql import SparkSession, functions as F
-from pyspark.sql.types import NumericType
+from pyspark.sql import SparkSession
 
 from config import AppConfig
-from storage import SqlServerStorage
+from datamart_client import DataMartClient
 
 
 class FoodClusterService:
@@ -20,7 +19,6 @@ class FoodClusterService:
             .master(s.master)
             .config("spark.driver.memory", s.driver_memory)
             .config("spark.sql.shuffle.partitions", s.shuffle_partitions)
-            .config("spark.jars.packages", "com.microsoft.sqlserver:mssql-jdbc:12.8.1.jre11")
             .getOrCreate()
         )
         spark.sparkContext.setLogLevel(s.log_level)
@@ -28,28 +26,22 @@ class FoodClusterService:
 
     def fit(self):
         spark = self._create_spark()
-        storage = SqlServerStorage(self.config.sqlserver)
+        datamart = DataMartClient(self.config.datamart.url)
         try:
-            path = self.config.data.input_path
-            raw = spark.read.parquet(path)
-            numeric_cols = [
-                f.name
-                for f in raw.schema.fields
-                if isinstance(f.dataType, NumericType)
-            ]
-            source = raw.select(
-                *[F.col(c).cast("double").alias(c) for c in numeric_cols]
+            df, feature_cols, total_rows, working_rows = datamart.load_training_data(
+                spark=spark,
+                input_path=self.config.data.input_path,
+                min_non_null_ratio=self.config.preprocessing.min_non_null_ratio,
+                target_rows=self.config.preprocessing.target_rows,
+                seed=self.config.training.seed,
             )
+            print(f"Loaded preprocessed data from data mart: rows={working_rows} / total={total_rows}")
 
-            storage.ensure_database()
-            storage.write(source, self.config.sqlserver.input_table)
-            df = storage.read(spark, self.config.sqlserver.input_table)
-
-            imputed_cols = [f"{c}_imp" for c in numeric_cols]
+            imputed_cols = [f"{c}_imp" for c in feature_cols]
             pipeline = Pipeline(
                 stages=[
                     Imputer(
-                        inputCols=numeric_cols,
+                        inputCols=feature_cols,
                         outputCols=imputed_cols,
                         strategy=self.config.preprocessing.imputer_strategy,
                     ),
@@ -76,16 +68,11 @@ class FoodClusterService:
             ).evaluate(predictions)
             print(f"fit. {self.config.training.metric_name}={score:.4f}")
 
-            storage.write(
-                predictions.select(*numeric_cols, "prediction"),
-                self.config.sqlserver.predictions_table,
-            )
-            storage.write(
-                spark.createDataFrame(
-                    [(self.config.training.metric_name, float(score))],
-                    ["metric", "value"],
-                ),
-                self.config.sqlserver.metrics_table,
-            )
+            predictions_df = predictions.select(*feature_cols, "prediction")
+            metrics = {
+                "metric": self.config.training.metric_name,
+                "value": float(score),
+            }
+            datamart.save_training_results(predictions_df, metrics)
         finally:
             spark.stop()

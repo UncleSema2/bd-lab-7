@@ -5,11 +5,32 @@ services:
       dockerfile: Dockerfile
     container_name: openfoodfacts-kmeans-app
     network_mode: host
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      datamart:
+        condition: service_healthy
+
+  datamart:
+    build:
+      context: .
+      dockerfile: Dockerfile.datamart
+    container_name: openfoodfacts-datamart
+    network_mode: host
     environment:
       MSSQL_HOST: localhost
       MSSQL_PASSWORD: ${MSSQL_PASSWORD:-QwErTy123@!}
+    ports:
+      - "8090:8090"
+      - "4040:4040"
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8090'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
     depends_on:
       mssql:
         condition: service_healthy

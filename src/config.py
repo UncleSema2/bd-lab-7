@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import os
 import yaml
 
 
@@ -18,19 +17,14 @@ class DataConfig:
 
 
 @dataclass
-class SqlServerConfig:
-    host: str
-    port: int
-    database: str
-    user: str
-    password: str
-    input_table: str
-    predictions_table: str
-    metrics_table: str
+class DataMartConfig:
+    url: str
 
 
 @dataclass
 class PreprocessingConfig:
+    min_non_null_ratio: float
+    target_rows: int
     imputer_strategy: str
 
 
@@ -46,7 +40,7 @@ class TrainingConfig:
 class AppConfig:
     spark: SparkConfig
     data: DataConfig
-    sqlserver: SqlServerConfig
+    datamart: DataMartConfig
     preprocessing: PreprocessingConfig
     training: TrainingConfig
 
@@ -55,21 +49,10 @@ def load_config(path: str) -> AppConfig:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
-    sql = data["sqlserver"]
-
     return AppConfig(
         spark=SparkConfig(**data["spark"]),
         data=DataConfig(**data["data"]),
-        sqlserver=SqlServerConfig(
-            host=os.environ["MSSQL_HOST"],
-            port=sql["port"],
-            database=sql["database"],
-            user=sql["user"],
-            password=os.environ["MSSQL_PASSWORD"],
-            input_table=sql["input_table"],
-            predictions_table=sql["predictions_table"],
-            metrics_table=sql["metrics_table"],
-        ),
+        datamart=DataMartConfig(**data["datamart"]),
         preprocessing=PreprocessingConfig(**data["preprocessing"]),
         training=TrainingConfig(**data["training"]),
     )
